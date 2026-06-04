@@ -1,0 +1,74 @@
+name: build
+
+# Construit l'exécutable Windows (.exe) ET l'exécutable macOS (.app/.zip).
+# Le build macOS tourne sur un runner macOS hébergé par GitHub : c'est la SEULE
+# façon de produire un .app depuis un projet développé sur Windows.
+#
+# Déclenché : sur un tag "vX.Y.Z" (publie une Release) ou à la main (Actions > Run).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Tests
+        run: |
+          pip install pytest
+          python -m pytest tests -q
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      # --- Windows : un .exe unique ------------------------------------------
+      - name: Build Windows (.exe)
+        if: runner.os == 'Windows'
+        run: pyinstaller --name Renommeur --windowed --onefile --noconfirm main.py
+
+      # --- macOS : un .app, signé ad-hoc, puis zippé proprement --------------
+      - name: Build macOS (.app + .zip)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --name Renommeur --windowed --noconfirm main.py
+          # Signature ad-hoc (gratuite) : nécessaire sur Apple Silicon pour que
+          # l'app puisse s'exécuter une fois la quarantaine retirée par l'ami.
+          codesign --force --deep --sign - "dist/Renommeur.app"
+          # ditto préserve la signature (contrairement au zip du Finder).
+          ditto -c -k --keepParent "dist/Renommeur.app" "dist/Renommeur-macOS.zip"
+
+      # --- Récupération des artefacts ----------------------------------------
+      - name: Publier les artefacts du build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Renommeur-${{ matrix.os }}
+          if-no-files-found: ignore
+          path: |
+            dist/Renommeur.exe
+            dist/Renommeur-macOS.zip
+
+      # --- Release GitHub (seulement sur un tag) -----------------------------
+      - name: Publier dans la Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Renommeur.exe
+            dist/Renommeur-macOS.zip

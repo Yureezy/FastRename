@@ -1,0 +1,20 @@
+# Environnements virtuels
+.venv/
+venv/
+
+# Caches Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Sorties de build PyInstaller
+build/
+dist/
+*.spec
+
+# Configuration locale de l'app (stockée dans le home de l'utilisateur normalement)
+.renommeur/
+
+# OS
+.DS_Store
+Thumbs.db
