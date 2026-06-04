@@ -56,7 +56,7 @@ class MainWindow(QWidget):
         root.setSpacing(12)
 
         # --- Bandeau de titre ---------------------------------------------
-        header = QLabel(f"🏷️  {__app_name__} · renommage par glisser-déposer")
+        header = QLabel(f"🏷️  {__app_name__}")
         header.setObjectName("header")
         root.addWidget(header)
 
@@ -70,8 +70,8 @@ class MainWindow(QWidget):
 
     def _build_sidebar(self) -> QWidget:
         sidebar = QGroupBox("1 · Référence")
-        sidebar.setMinimumWidth(230)
-        sidebar.setMaximumWidth(300)
+        sidebar.setMinimumWidth(150)
+        sidebar.setMaximumWidth(190)
         side = QVBoxLayout(sidebar)
 
         side.addWidget(QLabel("Choisis ta référence :"))
@@ -201,6 +201,10 @@ class MainWindow(QWidget):
             self._drop_boxes.append(box)
             self._suffix_edits.append(suffix_edit)
 
+        # Les colonnes s'étirent pour remplir toute la largeur disponible.
+        for c in range(COLUMNS_PER_ROW):
+            self.grid_layout.setColumnStretch(c, 1)
+
     def drop_box_count(self) -> int:
         """Nombre de cases actuellement affichées (API publique, utilisée par le selfcheck)."""
         return len(self._drop_boxes)
@@ -328,7 +332,8 @@ class MainWindow(QWidget):
             self._log(f"✗ {r.source.name} : {r.error}")
 
         if ok:
-            self._drop_boxes[index].flash_done(len(ok))
+            # Aperçu : on affiche une miniature de la première image copiée.
+            self._drop_boxes[index].show_preview(str(ok[0].source), len(ok))
         if ko:
             self._warn(f"{len(ko)} fichier(s) n'ont pas pu être copiés. Voir le journal.")
         self._refresh_undo_button()

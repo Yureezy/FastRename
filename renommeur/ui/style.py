@@ -19,10 +19,10 @@ QWidget {{
 QLabel#header {{
     background-color: {ACCENT};
     color: white;
-    font-size: 18px;
+    font-size: 13px;
     font-weight: bold;
-    padding: 14px 18px;
-    border-radius: 12px;
+    padding: 6px 12px;
+    border-radius: 9px;
 }}
 QLabel#subtitle {{
     color: #5b6172;
