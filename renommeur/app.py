@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from . import __app_name__
 from .ui.main_window import MainWindow
+from .ui.style import STYLESHEET
 
 
 def _install_excepthook() -> None:
@@ -29,6 +30,7 @@ def _install_excepthook() -> None:
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(__app_name__)
+    app.setStyleSheet(STYLESHEET)
     _install_excepthook()
     window = MainWindow()
 

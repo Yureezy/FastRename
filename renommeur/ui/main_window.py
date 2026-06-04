@@ -1,4 +1,4 @@
-"""Fenêtre principale : référence, nombre de suffixes, cases de dépôt, journal."""
+"""Fenêtre principale : référence (barre latérale), suffixes, cases de dépôt, journal."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -44,7 +44,7 @@ class MainWindow(QWidget):
         self._suffix_edits: list[QLineEdit] = []
 
         self.setWindowTitle(f"{__app_name__} {__version__}")
-        self.resize(820, 640)
+        self.resize(900, 660)
         self._build_ui()
         self._rebuild_grid(self.config.suffix_count)
         self._refresh_undo_button()
@@ -52,30 +52,54 @@ class MainWindow(QWidget):
     # ----------------------------------------------------------------- UI build
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(12)
 
-        # --- Référence -----------------------------------------------------
-        ref_box = QGroupBox("1 · Référence")
-        ref_layout = QHBoxLayout(ref_box)
-        self.ref_combo = QComboBox()
-        self.ref_combo.setEditable(True)
-        self.ref_combo.addItems(self.config.references)
-        if self.config.last_reference and self.config.last_reference in self.config.references:
-            self.ref_combo.setCurrentText(self.config.last_reference)
-        # En mémoire à chaque frappe ; on ne sauvegarde qu'en fin de saisie.
-        self.ref_combo.currentTextChanged.connect(self._on_reference_changed)
-        self.ref_combo.lineEdit().editingFinished.connect(self._save_config)
+        # --- Bandeau de titre ---------------------------------------------
+        header = QLabel(f"🏷️  {__app_name__} · renommage par glisser-déposer")
+        header.setObjectName("header")
+        root.addWidget(header)
+
+        # --- Corps : barre latérale (gauche) + zone principale (droite) ---
+        body = QHBoxLayout()
+        body.setSpacing(12)
+        root.addLayout(body, stretch=1)
+
+        body.addWidget(self._build_sidebar())
+        body.addLayout(self._build_main(), stretch=1)
+
+    def _build_sidebar(self) -> QWidget:
+        sidebar = QGroupBox("1 · Référence")
+        sidebar.setMinimumWidth(230)
+        sidebar.setMaximumWidth(300)
+        side = QVBoxLayout(sidebar)
+
+        side.addWidget(QLabel("Choisis ta référence :"))
+        self.ref_list = QListWidget()
+        self.ref_list.addItems(self.config.references)
+        self.ref_list.currentTextChanged.connect(self._on_reference_changed)
+        self._select_initial_reference()
+        side.addWidget(self.ref_list, stretch=1)
+
+        self.ref_input = QLineEdit()
+        self.ref_input.setPlaceholderText("Nouvelle référence…")
+        self.ref_input.returnPressed.connect(self._add_reference)
+        side.addWidget(self.ref_input)
+
         add_btn = QPushButton("＋ Ajouter")
-        add_btn.setToolTip("Enregistrer la référence saisie dans la liste")
         add_btn.clicked.connect(self._add_reference)
-        del_btn = QPushButton("🗑 Retirer")
-        del_btn.setToolTip("Retirer la référence sélectionnée de la liste")
+        del_btn = QPushButton("🗑 Retirer la sélection")
+        del_btn.setObjectName("danger")
         del_btn.clicked.connect(self._remove_reference)
-        ref_layout.addWidget(self.ref_combo, stretch=1)
-        ref_layout.addWidget(add_btn)
-        ref_layout.addWidget(del_btn)
-        root.addWidget(ref_box)
+        side.addWidget(add_btn)
+        side.addWidget(del_btn)
+        return sidebar
 
-        # --- Nombre de suffixes + dossier de sortie ------------------------
+    def _build_main(self) -> QVBoxLayout:
+        main = QVBoxLayout()
+        main.setSpacing(12)
+
+        # --- Options : nombre de suffixes + dossier de sortie -------------
         opts_box = QGroupBox("2 · Options")
         opts_layout = QGridLayout(opts_box)
 
@@ -83,8 +107,7 @@ class MainWindow(QWidget):
         self.count_spin = QSpinBox()
         self.count_spin.setRange(MIN_SUFFIXES, MAX_SUFFIXES)
         self.count_spin.setValue(self.config.suffix_count)
-        self.count_spin.setKeyboardTracking(False)  # pas de valeurs intermédiaires au clavier
-        # Debounce : on ne reconstruit/sauve qu'une fois la valeur stabilisée.
+        self.count_spin.setKeyboardTracking(False)
         self._count_timer = QTimer(self)
         self._count_timer.setSingleShot(True)
         self._count_timer.setInterval(DEBOUNCE_MS)
@@ -96,8 +119,10 @@ class MainWindow(QWidget):
         self.output_edit = QLineEdit(self.config.output_dir)
         self.output_edit.editingFinished.connect(self._on_output_changed)
         browse_btn = QPushButton("Parcourir…")
+        browse_btn.setObjectName("secondary")
         browse_btn.clicked.connect(self._browse_output)
         open_btn = QPushButton("Ouvrir")
+        open_btn.setObjectName("secondary")
         open_btn.clicked.connect(self._open_output)
         out_row = QHBoxLayout()
         out_row.addWidget(self.output_edit, stretch=1)
@@ -110,10 +135,10 @@ class MainWindow(QWidget):
         self.preview_check.toggled.connect(self._on_preview_toggled)
         opts_layout.addWidget(self.preview_check, 2, 0, 1, 2)
         opts_layout.setColumnStretch(1, 1)
-        root.addWidget(opts_box)
+        main.addWidget(opts_box)
 
         # --- Grille des cases ---------------------------------------------
-        grid_box = QGroupBox("3 · Suffixes · 4 · Dépose tes images dans les cases")
+        grid_box = QGroupBox("3 · Suffixes  ·  4 · Dépose tes images dans les cases")
         grid_box_layout = QVBoxLayout(grid_box)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -121,24 +146,26 @@ class MainWindow(QWidget):
         self.grid_layout = QGridLayout(self.grid_host)
         self.scroll.setWidget(self.grid_host)
         grid_box_layout.addWidget(self.scroll)
-        root.addWidget(grid_box, stretch=1)
+        main.addWidget(grid_box, stretch=1)
 
         # --- Journal + actions --------------------------------------------
         actions = QHBoxLayout()
         self.undo_btn = QPushButton("↩ Annuler le dernier lot")
         self.undo_btn.clicked.connect(self._undo)
         clear_btn = QPushButton("Effacer le journal")
+        clear_btn.setObjectName("secondary")
         clear_btn.clicked.connect(lambda: self.log_view.clear())
         actions.addWidget(self.undo_btn)
         actions.addStretch(1)
         actions.addWidget(clear_btn)
-        root.addLayout(actions)
+        main.addLayout(actions)
 
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(150)
+        self.log_view.setMaximumHeight(140)
         self.log_view.setPlaceholderText("Le journal des renommages s'affichera ici…")
-        root.addWidget(self.log_view)
+        main.addWidget(self.log_view)
+        return main
 
     # --------------------------------------------------------------- grid logic
     def _rebuild_grid(self, count: int) -> None:
@@ -184,30 +211,49 @@ class MainWindow(QWidget):
         self._save_config()
         self._rebuild_grid(value)
 
-    # ----------------------------------------------------------- event handlers
+    # ------------------------------------------------------------ références
+    def _select_initial_reference(self) -> None:
+        target = self.config.last_reference
+        if target and target in self.config.references:
+            matches = self.ref_list.findItems(target, Qt.MatchFlag.MatchExactly)
+            if matches:
+                self.ref_list.setCurrentItem(matches[0])
+                return
+        if self.config.references:
+            self.ref_list.setCurrentRow(0)
+
+    def _current_reference(self) -> str:
+        item = self.ref_list.currentItem()
+        return item.text().strip() if item else ""
+
     def _on_reference_changed(self, text: str) -> None:
-        # Mise à jour en mémoire seulement ; la persistance a lieu en fin de saisie.
         self.config.last_reference = text.strip()
+        self._save_config()
 
     def _add_reference(self) -> None:
-        text = self.ref_combo.currentText().strip()
+        text = self.ref_input.text().strip()
         if not text:
             return
         if text not in self.config.references:
             self.config.references.append(text)
-            self.ref_combo.addItem(text)
-        self.ref_combo.setCurrentText(text)
+            self.ref_list.addItem(text)
+        matches = self.ref_list.findItems(text, Qt.MatchFlag.MatchExactly)
+        if matches:
+            self.ref_list.setCurrentItem(matches[0])
+        self.ref_input.clear()
         self._save_config()
 
     def _remove_reference(self) -> None:
-        text = self.ref_combo.currentText().strip()
+        item = self.ref_list.currentItem()
+        if item is None:
+            return
+        text = item.text()
         if text in self.config.references:
             self.config.references.remove(text)
-            idx = self.ref_combo.findText(text)
-            if idx >= 0:
-                self.ref_combo.removeItem(idx)
-            self._save_config()
+        self.ref_list.takeItem(self.ref_list.row(item))
+        self._save_config()
 
+    # ----------------------------------------------------------- event handlers
     def _on_output_changed(self) -> None:
         self.config.output_dir = self.output_edit.text().strip()
         self._save_config()
@@ -240,9 +286,9 @@ class MainWindow(QWidget):
         return Path(text).expanduser()
 
     def _on_files_dropped(self, index: int, files: list[str]) -> None:
-        reference = self.ref_combo.currentText().strip()
+        reference = self._current_reference()
         if not reference:
-            self._warn("Choisis d'abord une référence (étape 1).")
+            self._warn("Choisis d'abord une référence (à gauche).")
             return
 
         suffix = self._suffix_edits[index].text().strip()

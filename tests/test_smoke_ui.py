@@ -43,8 +43,11 @@ def test_changement_du_nombre_de_suffixes(app):
 
 def test_depot_simule_copie_le_fichier(app, tmp_path):
     win = MainWindow()
-    win.ref_combo.setCurrentText("VD 1 JKT LEROY")
+    # Ajoute (si besoin) et sélectionne la référence dans la liste latérale.
+    win.ref_input.setText("VD 1 JKT LEROY")
+    win._add_reference()
     win.count_spin.setValue(5)
+    QTest.qWait(DEBOUNCE_MS + 150)  # laisse le debounce reconstruire la grille
     win._suffix_edits[2].setText("TQG")
     out_dir = tmp_path / "out"
     win.output_edit.setText(str(out_dir))

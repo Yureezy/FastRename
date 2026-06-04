@@ -11,20 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
-_STYLE_IDLE = """
-QFrame#dropBox {
-    border: 2px dashed #9aa0a6;
-    border-radius: 10px;
-    background: #fafafa;
-}
-"""
-_STYLE_HOVER = """
-QFrame#dropBox {
-    border: 2px solid #1a73e8;
-    border-radius: 10px;
-    background: #e8f0fe;
-}
-"""
+from .style import DROP_DONE, DROP_HOVER, DROP_IDLE
 
 
 class DropBox(QFrame):
@@ -37,8 +24,8 @@ class DropBox(QFrame):
         self.index = index
         self.setObjectName("dropBox")
         self.setAcceptDrops(True)
-        self.setMinimumSize(120, 90)
-        self.setStyleSheet(_STYLE_IDLE)
+        self.setMinimumSize(120, 96)
+        self.setStyleSheet(DROP_IDLE)
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -50,7 +37,7 @@ class DropBox(QFrame):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self.setStyleSheet(_STYLE_HOVER)
+            self.setStyleSheet(DROP_HOVER)
         else:
             event.ignore()
 
@@ -59,10 +46,10 @@ class DropBox(QFrame):
             event.acceptProposedAction()
 
     def dragLeaveEvent(self, event):  # noqa: ARG002
-        self.setStyleSheet(_STYLE_IDLE)
+        self.setStyleSheet(DROP_IDLE)
 
     def dropEvent(self, event):
-        self.setStyleSheet(_STYLE_IDLE)
+        self.setStyleSheet(DROP_IDLE)
         paths = [
             url.toLocalFile()
             for url in event.mimeData().urls()
@@ -79,5 +66,6 @@ class DropBox(QFrame):
             event.ignore()
 
     def flash_done(self, count: int) -> None:
-        """Petit retour visuel après une copie réussie."""
+        """Retour visuel vert après une copie réussie."""
+        self.setStyleSheet(DROP_DONE)
         self._label.setText(f"✓ {count} copié(s)\n— déposez encore")
