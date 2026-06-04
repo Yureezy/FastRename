@@ -89,6 +89,20 @@ QListWidget::item:selected {{ background-color: {ACCENT}; color: white; }}
 QCheckBox {{ spacing: 8px; }}
 QScrollArea {{ border: none; background: transparent; }}
 QScrollArea > QWidget > QWidget {{ background: transparent; }}
+
+/* Aperçu de l'image de la référence */
+QLabel#refImage {{
+    background: #f4f6ff;
+    border: 1px solid #e2e6f3;
+    border-radius: 8px;
+    color: #9aa1b5;
+}}
+
+/* Séparateurs ajustables entre les panneaux */
+QSplitter::handle {{ background: #d7dceb; border-radius: 3px; }}
+QSplitter::handle:horizontal {{ width: 6px; margin: 3px 1px; }}
+QSplitter::handle:vertical {{ height: 6px; margin: 1px 3px; }}
+QSplitter::handle:hover {{ background: {ACCENT}; }}
 """
 
 # Styles des cases de dépôt (appliqués widget par widget pour le retour visuel).

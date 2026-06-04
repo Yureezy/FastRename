@@ -90,8 +90,15 @@ def build_target_name(reference: str, suffix: str, original_filename: str) -> st
     réservé, normalisé NFC et tronqué à 255 octets UTF-8 (l'extension n'est
     jamais tronquée).
     """
-    base = f"{sanitize_component(reference)}_{sanitize_component(suffix)}"
-    # Si un seul composant est vide, on évite l'underscore traînant/en tête.
+    ref = sanitize_component(reference)
+    suf = sanitize_component(suffix)
+    # On insère "_" seulement s'il n'y est pas déjà : une référence comme
+    # "VD 1 JKT LEROY_" + "TQG" donne "VD 1 JKT LEROY_TQG" (et non "__").
+    if ref and suf and not ref.endswith("_") and not suf.startswith("_"):
+        base = f"{ref}_{suf}"
+    else:
+        base = f"{ref}{suf}"
+    # Si un composant est vide, on évite l'underscore traînant/en tête.
     base = base.strip("_ .")
     base = _avoid_reserved(base)
 

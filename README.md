@@ -14,6 +14,15 @@ Petit logiciel de bureau pour **renommer des images en masse par glisser-dépose
 Les fichiers d'origine ne sont **jamais** modifiés (mode copie). Un bouton **Annuler** permet de
 supprimer le dernier lot copié.
 
+## Import depuis Excel (.xlsx)
+
+Le bouton **« 📄 Importer un Excel… »** ajoute des références depuis un classeur `.xlsx` :
+- il repère automatiquement l'onglet qui contient la colonne **« Fichier »** (le texte de la référence) ;
+- il extrait l'image **intégrée** de la colonne **« Photo »** (en ignorant les autres images, ex. QR code) ;
+- l'image de la référence sélectionnée s'affiche sous la liste.
+
+> Les panneaux (Référence / Options / Suffixes) sont **redimensionnables** en tirant sur les séparateurs.
+
 ---
 
 ## Lancer depuis le code (développement)

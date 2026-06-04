@@ -14,6 +14,8 @@ from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".renommeur"
 CONFIG_PATH = CONFIG_DIR / "config.json"
+# Images des références importées depuis Excel (extraites sur le disque).
+REF_IMAGES_DIR = CONFIG_DIR / "ref_images"
 
 DEFAULT_REFERENCES = [
     "VD 1 JKT LEROY",
@@ -55,6 +57,8 @@ class AppConfig:
     suffix_count: int = 5
     output_dir: str = field(default_factory=default_output_dir)
     preview_before_rename: bool = False
+    # nom de référence -> chemin de son image (importée depuis Excel)
+    reference_images: dict[str, str] = field(default_factory=dict)
 
     # --------------------------------------------------------------- persistence
     @classmethod
@@ -85,6 +89,11 @@ class AppConfig:
         cfg.preview_before_rename = bool(
             data.get("preview_before_rename", cfg.preview_before_rename)
         )
+        imgs = data.get("reference_images")
+        if isinstance(imgs, dict):
+            cfg.reference_images = {
+                str(k): str(v) for k, v in imgs.items() if isinstance(v, str)
+            }
         return cfg
 
     def save(self) -> None:
@@ -95,6 +104,7 @@ class AppConfig:
             "suffix_count": self.suffix_count,
             "output_dir": self.output_dir,
             "preview_before_rename": self.preview_before_rename,
+            "reference_images": self.reference_images,
         }
         # Écriture atomique : on écrit dans un temporaire du même dossier, puis on
         # remplace d'un coup -> jamais de config.json tronqué en cas d'interruption.
