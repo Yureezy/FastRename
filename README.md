@@ -56,20 +56,7 @@ python3 -m venv .venv
 ### macOS (.app) — PAS depuis Windows
 
 ⚠️ **On ne peut pas construire l'app macOS depuis Windows** (il faut Xcode/`codesign`, exclusifs à
-macOS). Deux solutions :
-
-- **Recommandé — gratuit, sans Mac :** pousser le projet sur **GitHub** (dépôt **public** = minutes
-  macOS gratuites) ; le workflow [`.github/workflows/build.yml`](.github/workflows/build.yml)
-  construit automatiquement le `.exe` **et** le `.app`/`.zip` macOS. Crée un tag pour publier une
-  Release :
-  ```bash
-  git tag v0.1.0 && git push --tags
-  ```
-  Les deux exécutables apparaissent dans la **Release GitHub**.
-- **Sur un Mac :** `pip install pyinstaller && pyinstaller --name Renommeur --windowed main.py`
-  → `dist/Renommeur.app`.
-
----
+macOS).
 
 ## Donner l'app sur Mac
 
