@@ -65,25 +65,12 @@ python3 -m venv .venv
 ### macOS (.app) — PAS depuis Windows
 
 ⚠️ **On ne peut pas construire l'app macOS depuis Windows** (il faut Xcode/`codesign`, exclusifs à
-macOS). Deux solutions :
+macOS).
 
-- **Recommandé — gratuit, sans Mac :** pousser le projet sur **GitHub** (dépôt **public** = minutes
-  macOS gratuites) ; le workflow [`.github/workflows/build.yml`](.github/workflows/build.yml)
-  construit automatiquement le `.exe` **et** le `.app`/`.zip` macOS. Crée un tag pour publier une
-  Release :
-  ```bash
-  git tag v0.1.0 && git push --tags
-  ```
-  Les deux exécutables apparaissent dans la **Release GitHub**.
-- **Sur un Mac :** `pip install pyinstaller && pyinstaller --name Renommeur --windowed main.py`
-  → `dist/Renommeur.app`.
+## Donner l'app sur Mac
 
----
-
-## Donner l'app à des amis sur Mac
-
-macOS bloque les apps non signées par Apple. **Sans payer les 99 $/an** d'Apple Developer, voici la
-marche à suivre (à transmettre à l'ami, une seule fois) :
+macOS bloque les apps non signées par Apple. 
+voici la marche à suivre (une seule fois) :
 
 > 1. Glisse `Renommeur.app` dans le dossier **Applications**.
 > 2. Ouvre **Terminal** (Cmd+Espace → « Terminal »).
@@ -91,11 +78,9 @@ marche à suivre (à transmettre à l'ami, une seule fois) :
 > 4. **Glisse-dépose l'icône de l'app** dans la fenêtre Terminal (le chemin s'insère), puis Entrée.
 > 5. Double-clique sur l'app. C'est réglé définitivement.
 
-❗ Ne **pas** dire « clic droit > Ouvrir » : Apple a supprimé cette astuce dans macOS Sequoia (2024).
+❗ Ne **pas**  « clic droit > Ouvrir » : Apple a supprimé cette astuce dans macOS Sequoia (2024).
 
 Pour une expérience **« double-clic sans aucune alerte »**, il faut le compte Apple Developer
-(99 $/an) + signature *Developer ID* + notarisation. Détails :
-[docs/03-distribution-macos.md](docs/03-distribution-macos.md).
 
 ---
 
