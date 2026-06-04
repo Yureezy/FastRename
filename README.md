@@ -71,10 +71,10 @@ macOS). Deux solutions :
 
 ---
 
-## Donner l'app à des amis sur Mac
+## Donner l'app sur Mac
 
-macOS bloque les apps non signées par Apple. **Sans payer les 99 $/an** d'Apple Developer, voici la
-marche à suivre (à transmettre à l'ami, une seule fois) :
+macOS bloque les apps non signées par Apple. 
+voici la marche à suivre (une seule fois) :
 
 > 1. Glisse `Renommeur.app` dans le dossier **Applications**.
 > 2. Ouvre **Terminal** (Cmd+Espace → « Terminal »).
@@ -82,11 +82,9 @@ marche à suivre (à transmettre à l'ami, une seule fois) :
 > 4. **Glisse-dépose l'icône de l'app** dans la fenêtre Terminal (le chemin s'insère), puis Entrée.
 > 5. Double-clique sur l'app. C'est réglé définitivement.
 
-❗ Ne **pas** dire « clic droit > Ouvrir » : Apple a supprimé cette astuce dans macOS Sequoia (2024).
+❗ Ne **pas**  « clic droit > Ouvrir » : Apple a supprimé cette astuce dans macOS Sequoia (2024).
 
 Pour une expérience **« double-clic sans aucune alerte »**, il faut le compte Apple Developer
-(99 $/an) + signature *Developer ID* + notarisation. Détails :
-[docs/03-distribution-macos.md](docs/03-distribution-macos.md).
 
 ---
 
