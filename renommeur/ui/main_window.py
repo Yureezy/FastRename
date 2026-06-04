@@ -128,6 +128,11 @@ class MainWindow(QWidget):
         side.addWidget(import_btn)
 
         side.addWidget(QLabel("Choisis ta référence :"))
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("🔎 Rechercher une référence…")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._filter_references)
+        side.addWidget(self.search_edit)
         self.ref_list = QListWidget()
         self.ref_list.addItems(self.config.references)
         self.ref_list.currentTextChanged.connect(self._on_reference_changed)
@@ -147,11 +152,19 @@ class MainWindow(QWidget):
 
         add_btn = QPushButton("＋ Ajouter")
         add_btn.clicked.connect(self._add_reference)
+        side.addWidget(add_btn)
+
         del_btn = QPushButton("🗑 Retirer")
         del_btn.setObjectName("danger")
         del_btn.clicked.connect(self._remove_reference)
-        side.addWidget(add_btn)
-        side.addWidget(del_btn)
+        clear_all_btn = QPushButton("🧹 Tout effacer")
+        clear_all_btn.setObjectName("danger")
+        clear_all_btn.setToolTip("Vider toute la liste des références")
+        clear_all_btn.clicked.connect(self._clear_all_references)
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(del_btn)
+        btn_row.addWidget(clear_all_btn)
+        side.addLayout(btn_row)
 
         self._select_initial_reference()
         self._update_ref_image()
@@ -317,6 +330,31 @@ class MainWindow(QWidget):
         self.ref_list.takeItem(self.ref_list.row(item))
         self._save_config()
 
+    def _clear_all_references(self) -> None:
+        if not self.config.references:
+            return
+        confirm = QMessageBox.question(
+            self,
+            __app_name__,
+            "Effacer TOUTES les références de la liste ?\n"
+            "(Tes fichiers et tes images ne sont pas touchés.)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        self.config.references.clear()
+        self.config.reference_images.clear()
+        self.config.last_reference = ""
+        self.ref_list.clear()
+        self._save_config()
+        self._update_ref_image()
+
+    def _filter_references(self, text: str) -> None:
+        query = text.strip().casefold()
+        for i in range(self.ref_list.count()):
+            item = self.ref_list.item(i)
+            item.setHidden(query not in item.text().casefold())
+
     def _update_ref_image(self) -> None:
         name = self._current_reference()
         path = self.config.reference_images.get(name, "") if name else ""
@@ -376,6 +414,7 @@ class MainWindow(QWidget):
         if self.ref_list.currentItem() is None and self.ref_list.count():
             self.ref_list.setCurrentRow(0)
         self._update_ref_image()
+        self._filter_references(self.search_edit.text())  # respecte la recherche en cours
 
         msg = f"{added} référence(s) ajoutée(s) ({with_image} avec image)."
         if warnings:

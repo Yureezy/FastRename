@@ -15,6 +15,9 @@ QWidget {{
     font-size: 13px;
 }}
 
+/* Les libellés n'ont pas de fond (seuls #header et #refImage en gardent un). */
+QLabel {{ background: transparent; }}
+
 /* Bandeau de titre */
 QLabel#header {{
     background-color: {ACCENT};
