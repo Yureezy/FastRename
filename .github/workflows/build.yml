@@ -45,28 +45,28 @@ jobs:
       # --- Windows : un .exe unique ------------------------------------------
       - name: Build Windows (.exe)
         if: runner.os == 'Windows'
-        run: pyinstaller --name Renommeur --windowed --onefile --noconfirm main.py
+        run: pyinstaller --name FastRename --windowed --onefile --noconfirm main.py
 
       # --- macOS : un .app, signé ad-hoc, puis zippé proprement --------------
       - name: Build macOS (.app + .zip)
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --name Renommeur --windowed --noconfirm main.py
+          pyinstaller --name FastRename --windowed --noconfirm main.py
           # Signature ad-hoc (gratuite) : nécessaire sur Apple Silicon pour que
           # l'app puisse s'exécuter une fois la quarantaine retirée par l'ami.
-          codesign --force --deep --sign - "dist/Renommeur.app"
+          codesign --force --deep --sign - "dist/FastRename.app"
           # ditto préserve la signature (contrairement au zip du Finder).
-          ditto -c -k --keepParent "dist/Renommeur.app" "dist/Renommeur-macOS.zip"
+          ditto -c -k --keepParent "dist/FastRename.app" "dist/FastRename-macOS.zip"
 
       # --- Récupération des artefacts ----------------------------------------
       - name: Publier les artefacts du build
         uses: actions/upload-artifact@v4
         with:
-          name: Renommeur-${{ matrix.os }}
+          name: FastRename-${{ matrix.os }}
           if-no-files-found: ignore
           path: |
-            dist/Renommeur.exe
-            dist/Renommeur-macOS.zip
+            dist/FastRename.exe
+            dist/FastRename-macOS.zip
 
       # --- Release GitHub (seulement sur un tag) -----------------------------
       - name: Publier dans la Release
@@ -74,5 +74,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/Renommeur.exe
-            dist/Renommeur-macOS.zip
+            dist/FastRename.exe
+            dist/FastRename-macOS.zip

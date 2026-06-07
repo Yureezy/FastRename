@@ -1,6 +1,3 @@
-"""Thème graphique de l'application (feuille de style Qt / QSS)."""
-
-# Palette : indigo comme couleur d'accent, fond bleu très clair, cartes blanches.
 ACCENT = "#4f46e5"
 ACCENT_DARK = "#4338ca"
 ACCENT_DARKER = "#3730a3"
@@ -65,6 +62,7 @@ QPushButton#secondary {{ background-color: #eceefb; color: {ACCENT}; }}
 QPushButton#secondary:hover {{ background-color: #dfe2f7; }}
 QPushButton#danger {{ background-color: {DANGER}; }}
 QPushButton#danger:hover {{ background-color: {DANGER_DARK}; }}
+QPushButton#counter {{ padding: 2px 0; font-size: 15px; }}
 
 /* Champs de saisie */
 QLineEdit, QSpinBox, QPlainTextEdit, QListWidget {{
@@ -90,6 +88,15 @@ QListWidget::item:hover {{ background-color: #eef0fb; }}
 QListWidget::item:selected {{ background-color: {ACCENT}; color: white; }}
 
 QCheckBox {{ spacing: 8px; }}
+QCheckBox::indicator {{
+    width: 18px;
+    height: 18px;
+    border: 2px solid #b9c0de;
+    border-radius: 5px;
+    background: #ffffff;
+}}
+QCheckBox::indicator:hover {{ border-color: {ACCENT}; }}
+QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
 QScrollArea {{ border: none; background: transparent; }}
 QScrollArea > QWidget > QWidget {{ background: transparent; }}
 
@@ -108,7 +115,6 @@ QSplitter::handle:vertical {{ height: 6px; margin: 1px 3px; }}
 QSplitter::handle:hover {{ background: {ACCENT}; }}
 """
 
-# Styles des cases de dépôt (appliqués widget par widget pour le retour visuel).
 DROP_IDLE = """
 QFrame#dropBox {
     border: 2px dashed #b7bedd;

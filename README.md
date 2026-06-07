@@ -1,4 +1,4 @@
-# Renommeur
+# FastRename
 
 Petit logiciel de bureau pour **renommer des images en masse par glisser-déposer**.
 
@@ -58,8 +58,8 @@ python3 -m venv .venv
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\pyinstaller.exe --name Renommeur --windowed --onefile --noconfirm main.py
-# -> dist\Renommeur.exe
+.\.venv\Scripts\pyinstaller.exe --name FastRename --windowed --onefile --noconfirm main.py
+# -> dist\FastRename.exe
 ```
 
 ### macOS (.app) — PAS depuis Windows
@@ -72,7 +72,7 @@ macOS).
 macOS bloque les apps non signées par Apple. 
 voici la marche à suivre (une seule fois) :
 
-> 1. Glisse `Renommeur.app` dans le dossier **Applications**.
+> 1. Glisse `FastRename.app` dans le dossier **Applications**.
 > 2. Ouvre **Terminal** (Cmd+Espace → « Terminal »).
 > 3. Tape ceci **suivi d'un espace** : `xattr -dr com.apple.quarantine `
 > 4. **Glisse-dépose l'icône de l'app** dans la fenêtre Terminal (le chemin s'insère), puis Entrée.

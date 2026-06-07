@@ -1,16 +1,3 @@
-"""Import de références depuis un fichier Excel (.xlsx).
-
-Lit le texte d'une colonne (par défaut « Fichier ») et l'image d'une autre colonne
-(par défaut « Photo »), en associant chaque image au texte de la même ligne.
-
-Important : une feuille peut contenir plusieurs images par ligne (ex. la photo du
-produit ET un QR code). On sélectionne donc l'image dont l'ancrage est le plus
-proche de la colonne demandée, pour ne pas confondre la photo avec le QR code.
-
-Les images insérées DANS les cellules (fonctionnalité récente d'Excel, stockées en
-« rich value ») ne sont pas extractibles ainsi — on le signale alors.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,7 +14,6 @@ class ImportedReference:
 
 
 def _image_bytes(img) -> bytes | None:
-    """Récupère les octets bruts d'une image openpyxl (API tolérante aux versions)."""
     getter = getattr(img, "_data", None)
     try:
         if callable(getter):
@@ -47,10 +33,6 @@ def import_references(
     text_column: str = DEFAULT_TEXT_COLUMN,
     image_column: str = DEFAULT_IMAGE_COLUMN,
 ) -> tuple[list[ImportedReference], list[str]]:
-    """Renvoie ``(références, avertissements)`` lues dans ``xlsx_path``.
-
-    Les en-têtes sont cherchés en ligne 1 (insensible à la casse).
-    """
     from openpyxl import load_workbook
 
     warnings: list[str] = []
@@ -59,11 +41,10 @@ def import_references(
     def find_col(sheet, name: str) -> int | None:
         for cell in sheet[1]:
             if cell.value and str(cell.value).strip().casefold() == name.casefold():
-                return cell.column  # 1-based
+                return cell.column
         return None
 
-    # Un classeur peut avoir plusieurs onglets : on choisit celui qui contient la
-    # colonne texte (idéalement aussi la colonne image), pas forcément l'onglet actif.
+    # On choisit l'onglet qui contient la colonne texte (pas forcément l'actif).
     ws = wb.active
     best = -1
     for sheet in wb.worksheets:
@@ -82,9 +63,8 @@ def import_references(
     if text_col is None:
         text_col = 1
         warnings.append(f"Colonne « {text_column} » introuvable : 1re colonne utilisée.")
-    image_col = find_col(ws, image_column)  # peut être None
+    image_col = find_col(ws, image_column)
 
-    # 1) Texte par ligne Excel (1-based), à partir de la ligne 2.
     names_by_row: dict[int, str] = {}
     order: list[int] = []
     for r in range(2, ws.max_row + 1):
@@ -93,7 +73,7 @@ def import_references(
             names_by_row[r] = str(val).strip()
             order.append(r)
 
-    # 2) Images groupées par ligne (une ligne peut en contenir plusieurs).
+    # Ancrage d'image : ligne 0-based -> ligne Excel = row + 1.
     imgs = getattr(ws, "_images", []) or []
     images_in_row: dict[int, list[tuple[int, bytes, str]]] = {}
     for img in imgs:
@@ -122,8 +102,10 @@ def import_references(
         candidates = images_in_row.get(row)
         if not candidates:
             return None
+        # Plusieurs images possibles par ligne (photo + QR) : on prend la plus
+        # proche de la colonne demandée, pour ne pas confondre photo et QR code.
         if image_col is not None:
-            target = image_col - 1  # 0-based
+            target = image_col - 1
             candidates = sorted(candidates, key=lambda c: abs(c[0] - target))
         else:
             candidates = sorted(candidates, key=lambda c: c[0])

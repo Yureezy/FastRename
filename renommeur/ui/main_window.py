@@ -1,17 +1,10 @@
-"""Fenêtre principale : panneaux redimensionnables (référence, options, cases), journal.
-
-Les trois encadrés (1 · Référence, 2 · Options, 3-4 · Suffixes/dépôt) sont placés
-dans des QSplitter : l'utilisateur peut ajuster leurs tailles en tirant sur les
-séparateurs, comme des fenêtres.
-"""
-
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtCore import Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QFontMetrics, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -23,6 +16,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMessageBox,
     QPlainTextEdit,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -39,13 +33,76 @@ from ..config import (
     AppConfig,
     default_output_dir,
 )
-from ..renamer import Renamer
+from ..renamer import SUBDIR_RENAMED, Renamer
 from .drop_box import DropBox
 
-# Nombre de cases par ligne dans la grille.
 COLUMNS_PER_ROW = 5
-# Délai de stabilisation avant de reconstruire la grille / sauver (anti-rafale).
 DEBOUNCE_MS = 250
+
+
+class _ImportWorker(QThread):
+    phase = Signal(str)
+    progress = Signal(int, int)
+    done = Signal(list, list)
+    failed = Signal(str)
+
+    def __init__(self, path: str, images_dir: Path) -> None:
+        super().__init__()
+        self._path = path
+        self._images_dir = images_dir
+
+    def run(self) -> None:
+        try:
+            from ..excel_import import import_references
+
+            self.phase.emit("Lecture du fichier Excel…")
+            refs, warnings = import_references(self._path)
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(str(exc))
+            return
+
+        self.phase.emit("Extraction des images…")
+        try:
+            self._images_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+
+        results: list[tuple[str, str | None]] = []
+        total = len(refs)
+        for i, ref in enumerate(refs, 1):
+            img_path = None
+            if ref.image_bytes:
+                try:
+                    key = hashlib.md5(ref.name.encode("utf-8")).hexdigest()[:16]
+                    dest = self._images_dir / f"{key}{ref.image_ext}"
+                    dest.write_bytes(ref.image_bytes)
+                    img_path = str(dest)
+                except OSError:
+                    img_path = None
+            results.append((ref.name, img_path))
+            self.progress.emit(i, total)
+        self.done.emit(results, warnings)
+
+
+class _TitledBox(QGroupBox):
+    """QGroupBox avec un petit bouton flottant dans la barre de titre (à droite)."""
+
+    def __init__(self, title: str, corner: QWidget) -> None:
+        super().__init__(title)
+        self._corner = corner
+        corner.setParent(self)
+        corner.show()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Placer le bouton juste après le texte du titre.
+        f = self.font()
+        f.setBold(True)
+        title_w = QFontMetrics(f).horizontalAdvance(self.title())
+        x = 16 + 8 + title_w + 8 + 10  # left + padding + texte + padding + écart
+        self._corner.adjustSize()
+        self._corner.move(x, 1)
+        self._corner.raise_()
 
 
 class MainWindow(QWidget):
@@ -57,62 +114,40 @@ class MainWindow(QWidget):
         self._suffix_edits: list[QLineEdit] = []
 
         self.setWindowTitle(f"{__app_name__} {__version__}")
-        self.resize(940, 680)
+        self.resize(1180, 720)
         self._build_ui()
         self._rebuild_grid(self.config.suffix_count)
         self._refresh_undo_button()
 
-    # ----------------------------------------------------------------- UI build
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(12)
 
-        header = QLabel(f"🏷️  {__app_name__}")
-        header.setObjectName("header")
-        root.addWidget(header)
+        # Haut de la colonne de droite : Options (2) et Journal, en 60/40.
+        top_split = QSplitter(Qt.Orientation.Horizontal)
+        top_split.addWidget(self._build_options_box())
+        top_split.addWidget(self._build_journal_box())
+        top_split.setStretchFactor(0, 3)
+        top_split.setStretchFactor(1, 2)
+        top_split.setSizes([600, 400])
 
-        # Colonne de droite : options (2) + grille (3-4) redimensionnables, puis
-        # les actions et le journal — alignés SOUS ces panneaux (et non sous la
-        # colonne Référence).
+        # Colonne de droite : (Options | Journal) en haut, cases (3-4) en dessous.
         right_split = QSplitter(Qt.Orientation.Vertical)
-        right_split.addWidget(self._build_options_box())
+        right_split.addWidget(top_split)
         right_split.addWidget(self._build_grid_box())
         right_split.setStretchFactor(0, 0)
         right_split.setStretchFactor(1, 1)
-        right_split.setSizes([130, 440])
+        right_split.setSizes([210, 430])
 
-        right_container = QWidget()
-        right_layout = QVBoxLayout(right_container)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(12)
-        right_layout.addWidget(right_split, stretch=1)
-
-        actions = QHBoxLayout()
-        self.undo_btn = QPushButton("↩ Annuler le dernier lot")
-        self.undo_btn.clicked.connect(self._undo)
-        clear_btn = QPushButton("Effacer le journal")
-        clear_btn.setObjectName("secondary")
-        clear_btn.clicked.connect(lambda: self.log_view.clear())
-        actions.addWidget(self.undo_btn)
-        actions.addStretch(1)
-        actions.addWidget(clear_btn)
-        right_layout.addLayout(actions)
-
-        self.log_view = QPlainTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setFixedHeight(96)  # petit et figé : ne s'étale jamais
-        self.log_view.setPlaceholderText("Le journal des renommages s'affichera ici…")
-        right_layout.addWidget(self.log_view)
-
-        # Panneaux redimensionnables : colonne Référence | colonne de droite.
+        # Référence (1) à gauche | colonne de droite.
         self.main_split = QSplitter(Qt.Orientation.Horizontal)
         self.main_split.addWidget(self._build_sidebar())
-        self.main_split.addWidget(right_container)
+        self.main_split.addWidget(right_split)
         self.main_split.setStretchFactor(0, 0)
         self.main_split.setStretchFactor(1, 1)
         self.main_split.setCollapsible(0, False)
-        self.main_split.setSizes([190, 720])
+        self.main_split.setSizes([345, 760])
         self.main_split.splitterMoved.connect(lambda *_: self._update_ref_image())
         root.addWidget(self.main_split, stretch=1)
 
@@ -138,7 +173,6 @@ class MainWindow(QWidget):
         self.ref_list.currentTextChanged.connect(self._on_reference_changed)
         side.addWidget(self.ref_list, stretch=1)
 
-        # Aperçu de l'image associée à la référence sélectionnée.
         self.ref_image = QLabel("(pas d'image)")
         self.ref_image.setObjectName("refImage")
         self.ref_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -189,11 +223,13 @@ class MainWindow(QWidget):
         self.count_spin.valueChanged.connect(lambda _: self._count_timer.start())
 
         minus_btn = QPushButton("−")
-        minus_btn.setFixedWidth(42)
+        minus_btn.setObjectName("counter")
+        minus_btn.setFixedWidth(30)
         minus_btn.setToolTip("Une case de moins")
         minus_btn.clicked.connect(lambda: self.count_spin.stepBy(-1))
         plus_btn = QPushButton("＋")
-        plus_btn.setFixedWidth(42)
+        plus_btn.setObjectName("counter")
+        plus_btn.setFixedWidth(30)
         plus_btn.setToolTip("Une case de plus")
         plus_btn.clicked.connect(lambda: self.count_spin.stepBy(1))
 
@@ -207,6 +243,10 @@ class MainWindow(QWidget):
 
         opts_layout.addWidget(QLabel("Dossier de sortie :"), 1, 0)
         self.output_edit = QLineEdit(self.config.output_dir)
+        self.output_edit.setToolTip(
+            "Dossier de base : l'app y crée « Renommés » (les copies renommées) "
+            "et, si l'option est cochée, « Originaux » (les images d'origine)."
+        )
         self.output_edit.editingFinished.connect(self._on_output_changed)
         browse_btn = QPushButton("Parcourir…")
         browse_btn.setObjectName("secondary")
@@ -224,11 +264,27 @@ class MainWindow(QWidget):
         self.preview_check.setChecked(self.config.preview_before_rename)
         self.preview_check.toggled.connect(self._on_preview_toggled)
         opts_layout.addWidget(self.preview_check, 2, 0, 1, 2)
+
+        self.move_check = QCheckBox("Ranger les originaux dans le dossier « Originaux »")
+        self.move_check.setChecked(self.config.move_originals)
+        self.move_check.setToolTip(
+            "Après copie, déplace l'image d'origine dans le sous-dossier « Originaux » "
+            "du dossier de sortie (réversible via Annuler)."
+        )
+        self.move_check.toggled.connect(self._on_move_toggled)
+        opts_layout.addWidget(self.move_check, 3, 0, 1, 2)
+
         opts_layout.setColumnStretch(1, 1)
         return opts_box
 
     def _build_grid_box(self) -> QWidget:
-        grid_box = QGroupBox("3 · Suffixes  ·  4 · Dépose tes images dans les cases")
+        open_btn = QPushButton("📂")
+        open_btn.setObjectName("secondary")
+        open_btn.setFixedSize(42, 28)
+        open_btn.setToolTip("Ouvrir l'explorateur de fichiers (Ce PC) pour trouver tes images")
+        open_btn.clicked.connect(self._open_computer)
+
+        grid_box = _TitledBox("3 · Suffixes  ·  4 · Dépose tes images dans les cases", open_btn)
         grid_box_layout = QVBoxLayout(grid_box)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -238,9 +294,28 @@ class MainWindow(QWidget):
         grid_box_layout.addWidget(self.scroll)
         return grid_box
 
-    # --------------------------------------------------------------- grid logic
+    def _build_journal_box(self) -> QWidget:
+        box = QGroupBox("Journal")
+        layout = QVBoxLayout(box)
+
+        actions = QHBoxLayout()
+        self.undo_btn = QPushButton("↩ Annuler le dernier lot")
+        self.undo_btn.clicked.connect(self._undo)
+        clear_btn = QPushButton("Effacer")
+        clear_btn.setObjectName("secondary")
+        clear_btn.clicked.connect(lambda: self.log_view.clear())
+        actions.addWidget(self.undo_btn)
+        actions.addStretch(1)
+        actions.addWidget(clear_btn)
+        layout.addLayout(actions)
+
+        self.log_view = QPlainTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setPlaceholderText("Le journal des renommages s'affichera ici…")
+        layout.addWidget(self.log_view, stretch=1)
+        return box
+
     def _rebuild_grid(self, count: int) -> None:
-        # Mémorise les suffixes déjà saisis pour les préserver.
         previous = [edit.text() for edit in self._suffix_edits]
 
         while self.grid_layout.count():
@@ -272,12 +347,10 @@ class MainWindow(QWidget):
             self._drop_boxes.append(box)
             self._suffix_edits.append(suffix_edit)
 
-        # Les colonnes s'étirent pour remplir toute la largeur disponible.
         for c in range(COLUMNS_PER_ROW):
             self.grid_layout.setColumnStretch(c, 1)
 
     def drop_box_count(self) -> int:
-        """Nombre de cases actuellement affichées (API publique, utilisée par le selfcheck)."""
         return len(self._drop_boxes)
 
     def _apply_count(self) -> None:
@@ -286,7 +359,6 @@ class MainWindow(QWidget):
         self._save_config()
         self._rebuild_grid(value)
 
-    # ------------------------------------------------------------ références
     def _select_initial_reference(self) -> None:
         target = self.config.last_reference
         if target and target in self.config.references:
@@ -361,8 +433,7 @@ class MainWindow(QWidget):
         if path and Path(path).exists():
             pix = QPixmap(path)
             if not pix.isNull():
-                # On ajuste à la case SANS jamais dépasser la taille d'origine
-                # de l'image (donc pas d'agrandissement quand la fenêtre grandit).
+                # On ajuste à la case sans jamais dépasser la taille d'origine.
                 target_w = min(max(1, self.ref_image.width()), pix.width())
                 target_h = min(max(1, self.ref_image.height()), pix.height())
                 self.ref_image.setPixmap(
@@ -385,43 +456,54 @@ class MainWindow(QWidget):
         )
         if not path:
             return
-        try:
-            from ..excel_import import import_references
 
-            refs, warnings = import_references(path)
-        except Exception as exc:  # noqa: BLE001
-            self._warn(f"Impossible de lire le fichier Excel :\n{exc}")
-            return
+        self._progress = QProgressDialog("Lecture du fichier Excel…", None, 0, 0, self)
+        self._progress.setWindowTitle(__app_name__)
+        self._progress.setWindowModality(Qt.WindowModality.WindowModal)
+        self._progress.setMinimumDuration(0)
+        self._progress.setAutoClose(False)
+        self._progress.setAutoReset(False)
+        self._progress.show()
 
-        REF_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+        self._import_worker = _ImportWorker(path, REF_IMAGES_DIR)
+        self._import_worker.phase.connect(self._progress.setLabelText)
+        self._import_worker.progress.connect(self._on_import_progress)
+        self._import_worker.done.connect(self._on_import_done)
+        self._import_worker.failed.connect(self._on_import_failed)
+        self._import_worker.start()
+
+    def _on_import_progress(self, done: int, total: int) -> None:
+        if total and self._progress.maximum() != total:
+            self._progress.setRange(0, total)
+        self._progress.setValue(done)
+
+    def _on_import_failed(self, message: str) -> None:
+        self._progress.close()
+        self._warn(f"Impossible de lire le fichier Excel :\n{message}")
+
+    def _on_import_done(self, results: list, warnings: list) -> None:
+        self._progress.close()
         added = 0
         with_image = 0
-        for ref in refs:
-            if ref.name not in self.config.references:
-                self.config.references.append(ref.name)
-                self.ref_list.addItem(ref.name)
+        for name, img_path in results:
+            if name not in self.config.references:
+                self.config.references.append(name)
+                self.ref_list.addItem(name)
                 added += 1
-            if ref.image_bytes:
-                key = hashlib.md5(ref.name.encode("utf-8")).hexdigest()[:16]
-                dest = REF_IMAGES_DIR / f"{key}{ref.image_ext}"
-                try:
-                    dest.write_bytes(ref.image_bytes)
-                    self.config.reference_images[ref.name] = str(dest)
-                    with_image += 1
-                except OSError:
-                    pass
+            if img_path:
+                self.config.reference_images[name] = img_path
+                with_image += 1
         self._save_config()
         if self.ref_list.currentItem() is None and self.ref_list.count():
             self.ref_list.setCurrentRow(0)
         self._update_ref_image()
-        self._filter_references(self.search_edit.text())  # respecte la recherche en cours
+        self._filter_references(self.search_edit.text())
 
         msg = f"{added} référence(s) ajoutée(s) ({with_image} avec image)."
         if warnings:
             msg += "\n\n" + "\n".join(warnings)
         QMessageBox.information(self, __app_name__, msg)
 
-    # ----------------------------------------------------------- event handlers
     def _on_output_changed(self) -> None:
         self.config.output_dir = self.output_edit.text().strip()
         self._save_config()
@@ -443,13 +525,30 @@ class MainWindow(QWidget):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
+    def _open_computer(self) -> None:
+        # Ouvre l'explorateur au niveau « Ce PC » (tous les disques) pour naviguer.
+        import subprocess
+        import sys
+
+        try:
+            if sys.platform.startswith("win"):
+                subprocess.Popen(["explorer", "shell:MyComputerFolder"])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "/Volumes"])
+            else:
+                subprocess.Popen(["xdg-open", str(Path.home())])
+        except OSError as exc:
+            self._warn(f"Impossible d'ouvrir l'explorateur de fichiers :\n{exc}")
+
     def _on_preview_toggled(self, checked: bool) -> None:
         self.config.preview_before_rename = checked
         self._save_config()
 
-    # -------------------------------------------------------------- core action
+    def _on_move_toggled(self, checked: bool) -> None:
+        self.config.move_originals = checked
+        self._save_config()
+
     def _resolved_output_dir(self) -> Path:
-        """Dossier de sortie effectif : champ saisi (tilde développé) ou défaut."""
         text = self.output_edit.text().strip() or default_output_dir()
         return Path(text).expanduser()
 
@@ -475,7 +574,7 @@ class MainWindow(QWidget):
             confirm = QMessageBox.question(
                 self,
                 "Aperçu du renommage",
-                f"Copier {len(plan)} fichier(s) vers :\n{output_dir}\n\n{apercu}",
+                f"Copier {len(plan)} fichier(s) vers :\n{output_dir / SUBDIR_RENAMED}\n\n{apercu}",
                 QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             )
             if confirm != QMessageBox.StandardButton.Ok:
@@ -483,7 +582,10 @@ class MainWindow(QWidget):
                 return
 
         try:
-            results = self.renamer.execute(reference, suffix, output_dir, sources)
+            results = self.renamer.execute(
+                reference, suffix, output_dir, sources,
+                move_originals=self.move_check.isChecked(),
+            )
         except OSError as exc:
             self._warn(f"Impossible d'écrire dans le dossier de sortie :\n{output_dir}\n\n{exc}")
             return
@@ -496,7 +598,6 @@ class MainWindow(QWidget):
             self._log(f"✗ {r.source.name} : {r.error}")
 
         if ok:
-            # Aperçu : on affiche une miniature de la première image copiée.
             self._drop_boxes[index].show_preview(str(ok[0].source), len(ok))
         if ko:
             self._warn(f"{len(ko)} fichier(s) n'ont pas pu être copiés. Voir le journal.")
@@ -527,12 +628,11 @@ class MainWindow(QWidget):
     def _refresh_undo_button(self) -> None:
         self.undo_btn.setEnabled(self.renamer.can_undo())
 
-    # --------------------------------------------------------------- utilitaires
     def _save_config(self) -> None:
         try:
             self.config.save()
         except OSError:
-            pass  # la sauvegarde de préférences ne doit jamais bloquer l'app
+            pass  # la sauvegarde des préférences ne doit jamais bloquer l'app
 
     def _log(self, message: str) -> None:
         self.log_view.appendPlainText(message)

@@ -53,8 +53,10 @@ def test_copie_n_ecrase_pas_un_fichier_existant(tmp_path):
     src = src_dir / "a.jpg"
     src.write_bytes(b"nouveau")
 
-    # Un fichier porte déjà le nom cible exact.
-    existing = out_dir / "REF_S.jpg"
+    # Un fichier porte déjà le nom cible exact (dans le sous-dossier Renommés).
+    renamed_dir = out_dir / "Renommés"
+    renamed_dir.mkdir(parents=True)
+    existing = renamed_dir / "REF_S.jpg"
     existing.write_bytes(b"ancien")
 
     r = Renamer()

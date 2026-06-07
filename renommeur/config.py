@@ -1,10 +1,3 @@
-"""Chargement / sauvegarde de la configuration utilisateur (références, options).
-
-Stockée en JSON dans ``~/.renommeur/config.json`` — éditable depuis l'app.
-Lecture tolérante (un fichier corrompu retombe sur les valeurs par défaut) et
-écriture atomique (fichier temporaire + ``os.replace``).
-"""
-
 from __future__ import annotations
 
 import json
@@ -14,7 +7,6 @@ from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".renommeur"
 CONFIG_PATH = CONFIG_DIR / "config.json"
-# Images des références importées depuis Excel (extraites sur le disque).
 REF_IMAGES_DIR = CONFIG_DIR / "ref_images"
 
 DEFAULT_REFERENCES = [
@@ -28,12 +20,7 @@ MAX_SUFFIXES = 50
 
 
 def default_output_dir() -> str:
-    """Dossier de sortie par défaut : ``<Bureau>/Renommés``.
-
-    Passe par l'API Qt des dossiers connus, qui résout correctement le Bureau
-    même quand il est redirigé (OneDrive « Known Folder Move ») ou localisé.
-    Repli défensif si Qt n'est pas disponible (tests sans QApplication).
-    """
+    # Via l'API Qt : gère le Bureau redirigé (OneDrive) et localisé ; repli sans Qt.
     base = ""
     try:
         from PySide6.QtCore import QStandardPaths
@@ -43,11 +30,11 @@ def default_output_dir() -> str:
             base = QStandardPaths.writableLocation(
                 QStandardPaths.StandardLocation.DocumentsLocation
             )
-    except Exception:  # noqa: BLE001 - pas de Qt -> repli
+    except Exception:  # noqa: BLE001
         base = ""
     if not base:
         base = str(Path.home() / "Desktop")
-    return str(Path(base) / "Renommés")
+    return str(Path(base) / "FastRename")
 
 
 @dataclass
@@ -57,17 +44,16 @@ class AppConfig:
     suffix_count: int = 5
     output_dir: str = field(default_factory=default_output_dir)
     preview_before_rename: bool = False
-    # nom de référence -> chemin de son image (importée depuis Excel)
+    move_originals: bool = False
     reference_images: dict[str, str] = field(default_factory=dict)
 
-    # --------------------------------------------------------------- persistence
     @classmethod
     def load(cls) -> "AppConfig":
         try:
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return cls()
-        if not isinstance(data, dict):  # JSON valide mais non-objet (liste, scalaire…)
+        if not isinstance(data, dict):
             return cls()
 
         cfg = cls()
@@ -86,9 +72,14 @@ class AppConfig:
         out = data.get("output_dir")
         if isinstance(out, str) and out.strip():
             cfg.output_dir = out
+        # Migration : l'ancien dossier de sortie « Renommés » devient un dossier de
+        # base (qui contiendra désormais les sous-dossiers Renommés/ et Originaux/).
+        if Path(cfg.output_dir).name.casefold() in ("renommés", "renommes"):
+            cfg.output_dir = str(Path(cfg.output_dir).with_name("FastRename"))
         cfg.preview_before_rename = bool(
             data.get("preview_before_rename", cfg.preview_before_rename)
         )
+        cfg.move_originals = bool(data.get("move_originals", cfg.move_originals))
         imgs = data.get("reference_images")
         if isinstance(imgs, dict):
             cfg.reference_images = {
@@ -104,10 +95,10 @@ class AppConfig:
             "suffix_count": self.suffix_count,
             "output_dir": self.output_dir,
             "preview_before_rename": self.preview_before_rename,
+            "move_originals": self.move_originals,
             "reference_images": self.reference_images,
         }
-        # Écriture atomique : on écrit dans un temporaire du même dossier, puis on
-        # remplace d'un coup -> jamais de config.json tronqué en cas d'interruption.
+        # Écriture atomique : temporaire + os.replace -> pas de config tronquée.
         tmp = CONFIG_PATH.with_name(CONFIG_PATH.name + ".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(tmp, CONFIG_PATH)

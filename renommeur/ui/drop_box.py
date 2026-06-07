@@ -1,10 +1,3 @@
-"""La case de dépôt : reçoit le drag & drop, récupère le chemin réel et affiche un aperçu.
-
-C'est ici que se joue la fonction centrale du logiciel (voir docs/02-drag-and-drop.md).
-``url.toLocalFile()`` donne directement le chemin disque absolu, prêt à être copié.
-Après une copie réussie, la case montre une **miniature** de l'image déposée.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,8 +10,6 @@ from .style import DROP_DONE, DROP_HOVER, DROP_IDLE
 
 
 class DropBox(QFrame):
-    """Zone de dépôt. Émet ``filesDropped(index, [chemins])`` quand on lâche des fichiers."""
-
     filesDropped = Signal(int, list)
 
     def __init__(self, index: int) -> None:
@@ -36,8 +27,7 @@ class DropBox(QFrame):
         layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Zone d'image (miniature) : on l'autorise à être ignorée pour la taille,
-        # afin que la mise à l'échelle du pixmap ne fasse pas grossir la case.
+        # Politique Ignored : la mise à l'échelle du pixmap ne fait pas grossir la case.
         self._image = QLabel("⬇")
         self._image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._image.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
@@ -48,7 +38,6 @@ class DropBox(QFrame):
         self._caption.setWordWrap(True)
         layout.addWidget(self._caption)
 
-    # -- drag & drop ---------------------------------------------------------
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -61,7 +50,6 @@ class DropBox(QFrame):
             event.acceptProposedAction()
 
     def dragLeaveEvent(self, event):  # noqa: ARG002
-        # On ne réécrase pas un aperçu déjà affiché.
         self.setStyleSheet(DROP_DONE if self._pixmap else DROP_IDLE)
 
     def dropEvent(self, event):
@@ -70,7 +58,6 @@ class DropBox(QFrame):
             for url in event.mimeData().urls()
             if url.isLocalFile()
         ]
-        # On ne garde que les fichiers réels (on ignore les dossiers).
         files = [p for p in paths if p and Path(p).is_file()]
         if files:
             self.filesDropped.emit(self.index, files)
@@ -80,9 +67,7 @@ class DropBox(QFrame):
             self._caption.setText("Aucune image valide — réessaie")
             event.ignore()
 
-    # -- aperçu --------------------------------------------------------------
     def show_preview(self, image_path: str, count: int) -> None:
-        """Affiche une miniature de l'image copiée + le nombre de fichiers."""
         pix = QPixmap(image_path)
         if not pix.isNull():
             self._pixmap = pix

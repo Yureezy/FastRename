@@ -70,7 +70,7 @@ def test_depot_simule_copie_le_fichier(app, tmp_path):
     # Simule le signal émis par la case n°2.
     win._on_files_dropped(2, [str(src)])
 
-    assert (out_dir / "VD 1 JKT LEROY_TQG.jpeg").exists()
+    assert (out_dir / "Renommés" / "VD 1 JKT LEROY_TQG.jpeg").exists()
     assert src.exists()  # original intact
     assert win.renamer.can_undo()
 
