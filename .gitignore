@@ -15,6 +15,11 @@ dist/
 # Configuration locale de l'app (stockée dans le home de l'utilisateur normalement)
 .renommeur/
 
+# Icônes générées au build depuis assets/logo.png
+assets/logo.ico
+assets/logo.icns
+logo.iconset/
+
 # OS
 .DS_Store
 Thumbs.db

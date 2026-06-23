@@ -45,13 +45,22 @@ jobs:
       # --- Windows : un .exe unique ------------------------------------------
       - name: Build Windows (.exe)
         if: runner.os == 'Windows'
-        run: pyinstaller --name FastRename --windowed --onefile --noconfirm main.py
+        run: |
+          python -c "from PIL import Image; Image.open('assets/logo.png').save('assets/logo.ico', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+          pyinstaller --name FastRename --windowed --onefile --noconfirm --icon assets/logo.ico --add-data "assets/logo.png;assets" main.py
 
       # --- macOS : un .app, signé ad-hoc, puis zippé proprement --------------
       - name: Build macOS (.app + .zip)
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --name FastRename --windowed --noconfirm main.py
+          mkdir -p logo.iconset
+          sips -z 16 16   assets/logo.png --out logo.iconset/icon_16x16.png
+          sips -z 32 32   assets/logo.png --out logo.iconset/icon_32x32.png
+          sips -z 128 128 assets/logo.png --out logo.iconset/icon_128x128.png
+          sips -z 256 256 assets/logo.png --out logo.iconset/icon_256x256.png
+          sips -z 512 512 assets/logo.png --out logo.iconset/icon_512x512.png
+          iconutil -c icns logo.iconset -o assets/logo.icns
+          pyinstaller --name FastRename --windowed --noconfirm --icon assets/logo.icns --add-data "assets/logo.png:assets" main.py
           # Signature ad-hoc (gratuite) : nécessaire sur Apple Silicon pour que
           # l'app puisse s'exécuter une fois la quarantaine retirée par l'ami.
           codesign --force --deep --sign - "dist/FastRename.app"

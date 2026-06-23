@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QFontMetrics, QPixmap
+from PySide6.QtCore import QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QFontMetrics,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -14,6 +25,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressDialog,
@@ -21,11 +33,12 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from .. import __app_name__, __version__
+from .. import __app_name__, __version__, i18n
 from ..config import (
     MAX_SUFFIXES,
     MIN_SUFFIXES,
@@ -33,11 +46,70 @@ from ..config import (
     AppConfig,
     default_output_dir,
 )
-from ..renamer import SUBDIR_RENAMED, Renamer
+from ..renamer import Renamer
+from . import style
 from .drop_box import DropBox
 
 COLUMNS_PER_ROW = 5
 DEBOUNCE_MS = 250
+
+
+def _flag_icon(code: str) -> QIcon:
+    """Dessine un petit drapeau (fiable partout, contrairement aux emojis sur Windows)."""
+    w, h = 22, 15
+    pm = QPixmap(w, h)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    if code == "fr":  # tricolore vertical
+        p.fillRect(0, 0, 7, h, QColor("#0055A4"))
+        p.fillRect(7, 0, 8, h, QColor("#ffffff"))
+        p.fillRect(15, 0, 7, h, QColor("#EF4135"))
+    elif code == "es":  # bandes rouge/jaune/rouge
+        p.fillRect(0, 0, w, h, QColor("#AA151B"))
+        p.fillRect(0, 4, w, 7, QColor("#F1BF00"))
+    elif code == "en":  # croix de Saint-Georges
+        p.fillRect(0, 0, w, h, QColor("#ffffff"))
+        p.fillRect(0, 6, w, 3, QColor("#CE1124"))
+        p.fillRect(9, 0, 4, h, QColor("#CE1124"))
+    p.end()
+    return QIcon(pm)
+
+
+def _moon_icon() -> QIcon:
+    pm = QPixmap(18, 18)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor("#f5d76e"))
+    p.drawEllipse(2, 2, 14, 14)
+    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
+    p.drawEllipse(6, 0, 14, 14)  # creuse le croissant
+    p.end()
+    return QIcon(pm)
+
+
+def _sun_icon() -> QIcon:
+    pm = QPixmap(18, 18)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    cx = cy = 9.0
+    pen = QPen(QColor("#f6a821"))
+    pen.setWidth(2)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    for k in range(8):  # 8 rayons
+        a = math.pi * k / 4.0
+        p.drawLine(
+            round(cx + 6 * math.cos(a)), round(cy + 6 * math.sin(a)),
+            round(cx + 8.5 * math.cos(a)), round(cy + 8.5 * math.sin(a)),
+        )
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor("#f6a821"))
+    p.drawEllipse(5, 5, 8, 8)  # disque
+    p.end()
+    return QIcon(pm)
 
 
 class _ImportWorker(QThread):
@@ -46,22 +118,30 @@ class _ImportWorker(QThread):
     done = Signal(list, list)
     failed = Signal(str)
 
-    def __init__(self, path: str, images_dir: Path) -> None:
+    def __init__(self, path: str, images_dir: Path, text_col: str, image_col: str, sheet: str) -> None:
         super().__init__()
         self._path = path
         self._images_dir = images_dir
+        self._text_col = text_col
+        self._image_col = image_col
+        self._sheet = sheet
 
     def run(self) -> None:
         try:
             from ..excel_import import import_references
 
-            self.phase.emit("Lecture du fichier Excel…")
-            refs, warnings = import_references(self._path)
+            self.phase.emit(i18n.t("import_read"))
+            refs, warnings = import_references(
+                self._path,
+                text_column=self._text_col,
+                image_column=self._image_col or None,
+                sheet_name=self._sheet,
+            )
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))
             return
 
-        self.phase.emit("Extraction des images…")
+        self.phase.emit(i18n.t("import_extract"))
         try:
             self._images_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -95,7 +175,6 @@ class _TitledBox(QGroupBox):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Placer le bouton juste après le texte du titre.
         f = self.font()
         f.setBold(True)
         title_w = QFontMetrics(f).horizontalAdvance(self.title())
@@ -109,22 +188,75 @@ class MainWindow(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.config = AppConfig.load()
+        i18n.set_language(self.config.language)
+        style.set_theme(self.config.theme)
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(style.app_stylesheet())
         self.renamer = Renamer()
         self._drop_boxes: list[DropBox] = []
         self._suffix_edits: list[QLineEdit] = []
 
         self.setWindowTitle(f"{__app_name__} {__version__}")
         self.resize(1180, 720)
-        self._build_ui()
+        self._outer = QVBoxLayout(self)
+        self._outer.setContentsMargins(0, 0, 0, 0)
+        self._content: QWidget | None = None
+        self._build()
+
+    def _build(self) -> None:
+        # Reconstruit toute l'UI (utilisé aussi au changement de langue).
+        # ponytail: un changement de langue réinitialise les suffixes tapés ; action rare, OK.
+        if self._content is not None:
+            self._content.deleteLater()
+        self._drop_boxes = []
+        self._suffix_edits = []
+        self._content = QWidget()
+        self._outer.addWidget(self._content)
+        self._build_ui(self._content)
         self._rebuild_grid(self.config.suffix_count)
         self._refresh_undo_button()
 
-    def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+    def _build_ui(self, parent: QWidget) -> None:
+        root = QVBoxLayout(parent)
         root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(12)
+        root.setSpacing(10)
 
-        # Haut de la colonne de droite : Options (2) et Journal, en 60/40.
+        # Sélecteur de langue (en haut à droite).
+        lang_row = QHBoxLayout()
+        lang_row.addStretch(1)
+
+        # Thème : bouton-icône (lune / soleil) centré, menu au clic.
+        self.theme_btn = QToolButton()
+        self.theme_btn.setObjectName("iconBtn")
+        self.theme_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.theme_btn.setIconSize(QSize(18, 18))
+        self.theme_btn.setToolTip(i18n.t("theme"))
+        theme_menu = QMenu(self.theme_btn)
+        theme_menu.addAction(_moon_icon(), i18n.t("theme_dark")).setData("dark")
+        theme_menu.addAction(_sun_icon(), i18n.t("theme_light")).setData("light")
+        theme_menu.triggered.connect(lambda a: self._set_theme(a.data()))
+        self.theme_btn.setMenu(theme_menu)
+        self.theme_btn.setIcon(_moon_icon() if style.current() == "dark" else _sun_icon())
+        lang_row.addWidget(self.theme_btn)
+        lang_row.addSpacing(8)
+
+        # Langue : bouton-drapeau centré, menu au clic.
+        self.lang_btn = QToolButton()
+        self.lang_btn.setObjectName("iconBtn")
+        self.lang_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.lang_btn.setIconSize(QSize(22, 15))
+        self.lang_btn.setToolTip(i18n.t("language"))
+        lang_menu = QMenu(self.lang_btn)
+        for code, label in i18n.LANGUAGES.items():
+            lang_menu.addAction(_flag_icon(code), label).setData(code)
+        lang_menu.triggered.connect(lambda a: self._set_language(a.data()))
+        self.lang_btn.setMenu(lang_menu)
+        self.lang_btn.setIcon(_flag_icon(i18n.current()))
+        lang_row.addWidget(self.lang_btn)
+        root.addLayout(lang_row)
+
+        # Options (2) et Journal en haut (60/40).
         top_split = QSplitter(Qt.Orientation.Horizontal)
         top_split.addWidget(self._build_options_box())
         top_split.addWidget(self._build_journal_box())
@@ -152,19 +284,19 @@ class MainWindow(QWidget):
         root.addWidget(self.main_split, stretch=1)
 
     def _build_sidebar(self) -> QWidget:
-        sidebar = QGroupBox("1 · Référence")
+        sidebar = QGroupBox(i18n.t("ref_title"))
         sidebar.setMinimumWidth(150)
         side = QVBoxLayout(sidebar)
 
-        import_btn = QPushButton("📄 Importer un Excel…")
+        import_btn = QPushButton(i18n.t("import_excel"))
         import_btn.setObjectName("secondary")
-        import_btn.setToolTip("Importer des références (et leurs images) depuis un fichier .xlsx")
+        import_btn.setToolTip(i18n.t("import_tip"))
         import_btn.clicked.connect(self._import_excel)
         side.addWidget(import_btn)
 
-        side.addWidget(QLabel("Choisis ta référence :"))
+        side.addWidget(QLabel(i18n.t("choose_ref")))
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("🔎 Rechercher une référence…")
+        self.search_edit.setPlaceholderText(i18n.t("search_ph"))
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self._filter_references)
         side.addWidget(self.search_edit)
@@ -173,27 +305,27 @@ class MainWindow(QWidget):
         self.ref_list.currentTextChanged.connect(self._on_reference_changed)
         side.addWidget(self.ref_list, stretch=1)
 
-        self.ref_image = QLabel("(pas d'image)")
+        self.ref_image = QLabel(i18n.t("no_image"))
         self.ref_image.setObjectName("refImage")
         self.ref_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.ref_image.setFixedHeight(150)  # hauteur figée : ne grandit pas avec la fenêtre
         side.addWidget(self.ref_image)
 
         self.ref_input = QLineEdit()
-        self.ref_input.setPlaceholderText("Nouvelle référence…")
+        self.ref_input.setPlaceholderText(i18n.t("new_ref_ph"))
         self.ref_input.returnPressed.connect(self._add_reference)
         side.addWidget(self.ref_input)
 
-        add_btn = QPushButton("＋ Ajouter")
+        add_btn = QPushButton(i18n.t("add"))
         add_btn.clicked.connect(self._add_reference)
         side.addWidget(add_btn)
 
-        del_btn = QPushButton("🗑 Retirer")
+        del_btn = QPushButton(i18n.t("remove"))
         del_btn.setObjectName("danger")
         del_btn.clicked.connect(self._remove_reference)
-        clear_all_btn = QPushButton("🧹 Tout effacer")
+        clear_all_btn = QPushButton(i18n.t("clear_all"))
         clear_all_btn.setObjectName("danger")
-        clear_all_btn.setToolTip("Vider toute la liste des références")
+        clear_all_btn.setToolTip(i18n.t("clear_all_tip"))
         clear_all_btn.clicked.connect(self._clear_all_references)
         btn_row = QHBoxLayout()
         btn_row.addWidget(del_btn)
@@ -205,10 +337,10 @@ class MainWindow(QWidget):
         return sidebar
 
     def _build_options_box(self) -> QWidget:
-        opts_box = QGroupBox("2 · Options")
+        opts_box = QGroupBox(i18n.t("options_title"))
         opts_layout = QGridLayout(opts_box)
 
-        opts_layout.addWidget(QLabel("Nombre de suffixes :"), 0, 0)
+        opts_layout.addWidget(QLabel(i18n.t("nb_suffixes")), 0, 0)
         self.count_spin = QSpinBox()
         self.count_spin.setRange(MIN_SUFFIXES, MAX_SUFFIXES)
         self.count_spin.setValue(self.config.suffix_count)
@@ -225,12 +357,12 @@ class MainWindow(QWidget):
         minus_btn = QPushButton("−")
         minus_btn.setObjectName("counter")
         minus_btn.setFixedWidth(30)
-        minus_btn.setToolTip("Une case de moins")
+        minus_btn.setToolTip(i18n.t("less_tip"))
         minus_btn.clicked.connect(lambda: self.count_spin.stepBy(-1))
         plus_btn = QPushButton("＋")
         plus_btn.setObjectName("counter")
         plus_btn.setFixedWidth(30)
-        plus_btn.setToolTip("Une case de plus")
+        plus_btn.setToolTip(i18n.t("more_tip"))
         plus_btn.clicked.connect(lambda: self.count_spin.stepBy(1))
 
         count_row = QHBoxLayout()
@@ -241,17 +373,16 @@ class MainWindow(QWidget):
         count_row.addStretch(1)
         opts_layout.addLayout(count_row, 0, 1)
 
-        opts_layout.addWidget(QLabel("Dossier de sortie :"), 1, 0)
+        opts_layout.addWidget(QLabel(i18n.t("output_dir")), 1, 0)
         self.output_edit = QLineEdit(self.config.output_dir)
         self.output_edit.setToolTip(
-            "Dossier de base : l'app y crée « Renommés » (les copies renommées) "
-            "et, si l'option est cochée, « Originaux » (les images d'origine)."
+            i18n.t("output_tip", r=i18n.t("dir_renamed"), o=i18n.t("dir_originals"))
         )
         self.output_edit.editingFinished.connect(self._on_output_changed)
-        browse_btn = QPushButton("Parcourir…")
+        browse_btn = QPushButton(i18n.t("browse"))
         browse_btn.setObjectName("secondary")
         browse_btn.clicked.connect(self._browse_output)
-        open_btn = QPushButton("Ouvrir")
+        open_btn = QPushButton(i18n.t("open"))
         open_btn.setObjectName("secondary")
         open_btn.clicked.connect(self._open_output)
         out_row = QHBoxLayout()
@@ -260,17 +391,14 @@ class MainWindow(QWidget):
         out_row.addWidget(open_btn)
         opts_layout.addLayout(out_row, 1, 1)
 
-        self.preview_check = QCheckBox("Demander un aperçu avant de copier")
+        self.preview_check = QCheckBox(i18n.t("preview_check"))
         self.preview_check.setChecked(self.config.preview_before_rename)
         self.preview_check.toggled.connect(self._on_preview_toggled)
         opts_layout.addWidget(self.preview_check, 2, 0, 1, 2)
 
-        self.move_check = QCheckBox("Ranger les originaux dans le dossier « Originaux »")
+        self.move_check = QCheckBox(i18n.t("move_check", o=i18n.t("dir_originals")))
         self.move_check.setChecked(self.config.move_originals)
-        self.move_check.setToolTip(
-            "Après copie, déplace l'image d'origine dans le sous-dossier « Originaux » "
-            "du dossier de sortie (réversible via Annuler)."
-        )
+        self.move_check.setToolTip(i18n.t("move_tip", o=i18n.t("dir_originals")))
         self.move_check.toggled.connect(self._on_move_toggled)
         opts_layout.addWidget(self.move_check, 3, 0, 1, 2)
 
@@ -281,10 +409,10 @@ class MainWindow(QWidget):
         open_btn = QPushButton("📂")
         open_btn.setObjectName("secondary")
         open_btn.setFixedSize(42, 28)
-        open_btn.setToolTip("Ouvrir l'explorateur de fichiers (Ce PC) pour trouver tes images")
+        open_btn.setToolTip(i18n.t("open_pc_tip"))
         open_btn.clicked.connect(self._open_computer)
 
-        grid_box = _TitledBox("3 · Suffixes  ·  4 · Dépose tes images dans les cases", open_btn)
+        grid_box = _TitledBox(i18n.t("grid_title"), open_btn)
         grid_box_layout = QVBoxLayout(grid_box)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -295,13 +423,13 @@ class MainWindow(QWidget):
         return grid_box
 
     def _build_journal_box(self) -> QWidget:
-        box = QGroupBox("Journal")
+        box = QGroupBox(i18n.t("journal_title"))
         layout = QVBoxLayout(box)
 
         actions = QHBoxLayout()
-        self.undo_btn = QPushButton("↩ Annuler le dernier lot")
+        self.undo_btn = QPushButton(i18n.t("undo_btn"))
         self.undo_btn.clicked.connect(self._undo)
-        clear_btn = QPushButton("Effacer")
+        clear_btn = QPushButton(i18n.t("clear_log"))
         clear_btn.setObjectName("secondary")
         clear_btn.clicked.connect(lambda: self.log_view.clear())
         actions.addWidget(self.undo_btn)
@@ -311,7 +439,7 @@ class MainWindow(QWidget):
 
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setPlaceholderText("Le journal des renommages s'affichera ici…")
+        self.log_view.setPlaceholderText(i18n.t("log_ph"))
         layout.addWidget(self.log_view, stretch=1)
         return box
 
@@ -335,7 +463,7 @@ class MainWindow(QWidget):
             box.filesDropped.connect(self._on_files_dropped)
 
             suffix_edit = QLineEdit()
-            suffix_edit.setPlaceholderText(f"suffixe {i + 1}")
+            suffix_edit.setPlaceholderText(i18n.t("suffix_ph", n=i + 1))
             suffix_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
             if i < len(previous):
                 suffix_edit.setText(previous[i])
@@ -358,6 +486,27 @@ class MainWindow(QWidget):
         self.config.suffix_count = value
         self._save_config()
         self._rebuild_grid(value)
+
+    def _set_language(self, code: str) -> None:
+        if not code or code == i18n.current():
+            return
+        i18n.set_language(code)
+        self.config.language = code
+        self._save_config()
+        self._build()  # reconstruit toute l'UI dans la nouvelle langue
+
+    def _set_theme(self, code: str) -> None:
+        if not code or code == style.current():
+            return
+        style.set_theme(code)
+        self.config.theme = code
+        self._save_config()
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(style.app_stylesheet())
+        for box in self._drop_boxes:
+            box.refresh_theme()
+        self.theme_btn.setIcon(_moon_icon() if code == "dark" else _sun_icon())
 
     def _select_initial_reference(self) -> None:
         target = self.config.last_reference
@@ -408,8 +557,7 @@ class MainWindow(QWidget):
         confirm = QMessageBox.question(
             self,
             __app_name__,
-            "Effacer TOUTES les références de la liste ?\n"
-            "(Tes fichiers et tes images ne sont pas touchés.)",
+            i18n.t("clear_confirm"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:
@@ -447,17 +595,79 @@ class MainWindow(QWidget):
                 self.ref_image.setToolTip(name)
                 return
         self.ref_image.setPixmap(QPixmap())
-        self.ref_image.setText("(pas d'image)")
+        self.ref_image.setText(i18n.t("no_image"))
         self.ref_image.setToolTip("")
+
+    def _ask_columns(self, sheets: dict[str, list[str]]):
+        """Dialogue : onglet + colonne texte + colonne image. Renvoie (sheet, text, image) ou None."""
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(i18n.t("col_dialog_title"))
+        form = QFormLayout(dlg)
+
+        sheet_combo = QComboBox()
+        sheet_combo.addItems(list(sheets.keys()))
+        # Onglet par défaut : celui qui a une colonne ~ "fichier", sinon le plus rempli.
+        if sheets:
+            best = max(
+                sheets,
+                key=lambda n: (any("fichier" in h.casefold() for h in sheets[n]), len(sheets[n])),
+            )
+            sheet_combo.setCurrentText(best)
+        text_combo = QComboBox()
+        image_combo = QComboBox()
+
+        def populate() -> None:
+            headers = sheets.get(sheet_combo.currentText(), [])
+            text_combo.clear()
+            text_combo.addItems(headers)
+            ti = next((i for i, h in enumerate(headers) if "fichier" in h.casefold()), 0)
+            text_combo.setCurrentIndex(ti if headers else -1)
+            image_combo.clear()
+            image_combo.addItem(i18n.t("col_none"), "")
+            for h in headers:
+                image_combo.addItem(h, h)
+            ii = next((i for i, h in enumerate(headers) if "photo" in h.casefold()), -1)
+            image_combo.setCurrentIndex(ii + 1 if ii >= 0 else 0)
+
+        populate()
+        sheet_combo.currentIndexChanged.connect(populate)
+
+        form.addRow(i18n.t("col_sheet"), sheet_combo)
+        form.addRow(i18n.t("col_text"), text_combo)
+        form.addRow(i18n.t("col_image"), image_combo)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return sheet_combo.currentText(), text_combo.currentText(), image_combo.currentData()
 
     def _import_excel(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Importer un fichier Excel", str(Path.home()), "Fichiers Excel (*.xlsx)"
+            self, i18n.t("import_choose"), str(Path.home()), i18n.t("import_filter")
         )
         if not path:
             return
 
-        self._progress = QProgressDialog("Lecture du fichier Excel…", None, 0, 0, self)
+        from ..excel_import import read_sheets
+
+        try:
+            sheets = read_sheets(path)
+        except Exception as exc:  # noqa: BLE001
+            self._warn(i18n.t("import_fail", err=exc))
+            return
+        choice = self._ask_columns(sheets)
+        if choice is None:
+            return
+        sheet, text_col, image_col = choice
+
+        self._progress = QProgressDialog(i18n.t("import_read"), None, 0, 0, self)
         self._progress.setWindowTitle(__app_name__)
         self._progress.setWindowModality(Qt.WindowModality.WindowModal)
         self._progress.setMinimumDuration(0)
@@ -465,7 +675,7 @@ class MainWindow(QWidget):
         self._progress.setAutoReset(False)
         self._progress.show()
 
-        self._import_worker = _ImportWorker(path, REF_IMAGES_DIR)
+        self._import_worker = _ImportWorker(path, REF_IMAGES_DIR, text_col, image_col, sheet)
         self._import_worker.phase.connect(self._progress.setLabelText)
         self._import_worker.progress.connect(self._on_import_progress)
         self._import_worker.done.connect(self._on_import_done)
@@ -479,7 +689,7 @@ class MainWindow(QWidget):
 
     def _on_import_failed(self, message: str) -> None:
         self._progress.close()
-        self._warn(f"Impossible de lire le fichier Excel :\n{message}")
+        self._warn(i18n.t("import_fail", err=message))
 
     def _on_import_done(self, results: list, warnings: list) -> None:
         self._progress.close()
@@ -499,7 +709,7 @@ class MainWindow(QWidget):
         self._update_ref_image()
         self._filter_references(self.search_edit.text())
 
-        msg = f"{added} référence(s) ajoutée(s) ({with_image} avec image)."
+        msg = i18n.t("import_done", added=added, img=with_image)
         if warnings:
             msg += "\n\n" + "\n".join(warnings)
         QMessageBox.information(self, __app_name__, msg)
@@ -511,7 +721,7 @@ class MainWindow(QWidget):
     def _browse_output(self) -> None:
         txt = self.output_edit.text().strip()
         start = txt if txt and Path(txt).expanduser().is_dir() else str(Path.home())
-        chosen = QFileDialog.getExistingDirectory(self, "Choisir le dossier de sortie", start)
+        chosen = QFileDialog.getExistingDirectory(self, i18n.t("choose_output"), start)
         if chosen:
             self.output_edit.setText(chosen)
             self._on_output_changed()
@@ -521,7 +731,7 @@ class MainWindow(QWidget):
         try:
             path.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            self._warn(f"Impossible d'ouvrir le dossier de sortie :\n{exc}")
+            self._warn(i18n.t("open_output_fail", err=exc))
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
@@ -538,7 +748,7 @@ class MainWindow(QWidget):
             else:
                 subprocess.Popen(["xdg-open", str(Path.home())])
         except OSError as exc:
-            self._warn(f"Impossible d'ouvrir l'explorateur de fichiers :\n{exc}")
+            self._warn(i18n.t("explorer_fail", err=exc))
 
     def _on_preview_toggled(self, checked: bool) -> None:
         self.config.preview_before_rename = checked
@@ -555,12 +765,12 @@ class MainWindow(QWidget):
     def _on_files_dropped(self, index: int, files: list[str]) -> None:
         reference = self._current_reference()
         if not reference:
-            self._warn("Choisis d'abord une référence (à gauche).")
+            self._warn(i18n.t("warn_choose_ref"))
             return
 
         suffix = self._suffix_edits[index].text().strip()
         if not suffix:
-            self._warn(f"La case {index + 1} n'a pas de suffixe. Saisis-en un sous la case.")
+            self._warn(i18n.t("warn_no_suffix", n=index + 1))
             return
 
         output_dir = self._resolved_output_dir()
@@ -568,17 +778,22 @@ class MainWindow(QWidget):
 
         if self.preview_check.isChecked():
             plan = self.renamer.plan(reference, suffix, output_dir, sources)
-            apercu = "\n".join(f"  {s.name}  →  {name}" for s, name in plan[:20])
+            lst = "\n".join(f"  {s.name}  →  {name}" for s, name in plan[:20])
             if len(plan) > 20:
-                apercu += f"\n  … (+{len(plan) - 20})"
+                lst += "\n" + i18n.t("preview_more", n=len(plan) - 20)
             confirm = QMessageBox.question(
                 self,
-                "Aperçu du renommage",
-                f"Copier {len(plan)} fichier(s) vers :\n{output_dir / SUBDIR_RENAMED}\n\n{apercu}",
+                i18n.t("preview_title"),
+                i18n.t(
+                    "preview_msg",
+                    count=len(plan),
+                    dir=output_dir / i18n.t("dir_renamed"),
+                    lst=lst,
+                ),
                 QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             )
             if confirm != QMessageBox.StandardButton.Ok:
-                self._log("Aperçu annulé.")
+                self._log(i18n.t("preview_cancelled"))
                 return
 
         try:
@@ -587,7 +802,7 @@ class MainWindow(QWidget):
                 move_originals=self.move_check.isChecked(),
             )
         except OSError as exc:
-            self._warn(f"Impossible d'écrire dans le dossier de sortie :\n{output_dir}\n\n{exc}")
+            self._warn(i18n.t("write_fail", dir=output_dir, err=exc))
             return
 
         ok = [r for r in results if r.ok]
@@ -600,7 +815,7 @@ class MainWindow(QWidget):
         if ok:
             self._drop_boxes[index].show_preview(str(ok[0].source), len(ok))
         if ko:
-            self._warn(f"{len(ko)} fichier(s) n'ont pas pu être copiés. Voir le journal.")
+            self._warn(i18n.t("ko_files", n=len(ko)))
         self._refresh_undo_button()
 
     def _undo(self) -> None:
@@ -608,21 +823,17 @@ class MainWindow(QWidget):
             return
         confirm = QMessageBox.question(
             self,
-            "Annuler le dernier lot",
-            "Supprimer les fichiers créés par le dernier dépôt ?\n"
-            "(Tes images d'origine ne sont jamais touchées.)",
+            i18n.t("undo_title"),
+            i18n.t("undo_msg"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:
             return
         result = self.renamer.undo_last()
-        self._log(f"↩ {result.removed} fichier(s) supprimé(s) (annulation).")
+        self._log(i18n.t("undo_removed", n=result.removed))
         if result.failed:
             details = "\n".join(str(p) for p, _ in result.failed)
-            self._warn(
-                "Ces fichiers n'ont pas pu être supprimés (peut-être ouverts ailleurs).\n"
-                "Ferme-les puis réessaie l'annulation :\n\n" + details
-            )
+            self._warn(i18n.t("undo_fail", lst=details))
         self._refresh_undo_button()
 
     def _refresh_undo_button(self) -> None:

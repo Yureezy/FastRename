@@ -5,11 +5,8 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import i18n
 from .naming import build_target_name, collision_key, resolve_unique, split_name_ext
-
-# Sous-dossiers créés dans le dossier de sortie choisi par l'utilisateur.
-SUBDIR_RENAMED = "Renommés"
-SUBDIR_ORIGINALS = "Originaux"
 
 
 @dataclass
@@ -84,7 +81,7 @@ class Renamer:
         output_dir: Path,
         sources: list[Path],
     ) -> list[tuple[Path, str]]:
-        renamed_dir = Path(output_dir) / SUBDIR_RENAMED
+        renamed_dir = Path(output_dir) / i18n.t("dir_renamed")
         taken = set(self._taken_by_dir.get(renamed_dir, set()))
         return self._plan_with(reference, suffix, renamed_dir, sources, taken)
 
@@ -110,7 +107,7 @@ class Renamer:
         move_originals: bool = False,
     ) -> list[RenameResult]:
         base_dir = Path(output_dir)
-        renamed_dir = base_dir / SUBDIR_RENAMED
+        renamed_dir = base_dir / i18n.t("dir_renamed")
         os.makedirs(_extended(renamed_dir), exist_ok=True)
 
         taken = self._taken_by_dir.setdefault(renamed_dir, set())
@@ -139,7 +136,7 @@ class Renamer:
     def _archive_original(self, src: Path, base_dir: Path, batch: Batch) -> None:
         # Best-effort : le renommage a réussi, ne pas échouer si l'archivage rate.
         try:
-            done_dir = Path(base_dir) / SUBDIR_ORIGINALS
+            done_dir = Path(base_dir) / i18n.t("dir_originals")
             os.makedirs(_extended(done_dir), exist_ok=True)
             moved = _unique_in_dir(done_dir, src.name)
             os.replace(_extended(src), _extended(moved))

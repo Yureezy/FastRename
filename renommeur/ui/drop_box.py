@@ -6,7 +6,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout
 
-from .style import DROP_DONE, DROP_HOVER, DROP_IDLE
+from .. import i18n
+from . import style
 
 
 class DropBox(QFrame):
@@ -19,7 +20,7 @@ class DropBox(QFrame):
         self.setAcceptDrops(True)
         self.setMinimumSize(150, 160)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setStyleSheet(DROP_IDLE)
+        self.setStyleSheet(style.drop_idle())
         self._pixmap: QPixmap | None = None
 
         layout = QVBoxLayout(self)
@@ -33,7 +34,7 @@ class DropBox(QFrame):
         self._image.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         layout.addWidget(self._image, stretch=1)
 
-        self._caption = QLabel("Déposez vos images")
+        self._caption = QLabel(i18n.t("drop_caption"))
         self._caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._caption.setWordWrap(True)
         layout.addWidget(self._caption)
@@ -41,7 +42,7 @@ class DropBox(QFrame):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self.setStyleSheet(DROP_HOVER)
+            self.setStyleSheet(style.drop_hover())
         else:
             event.ignore()
 
@@ -50,7 +51,7 @@ class DropBox(QFrame):
             event.acceptProposedAction()
 
     def dragLeaveEvent(self, event):  # noqa: ARG002
-        self.setStyleSheet(DROP_DONE if self._pixmap else DROP_IDLE)
+        self.refresh_theme()
 
     def dropEvent(self, event):
         paths = [
@@ -63,8 +64,8 @@ class DropBox(QFrame):
             self.filesDropped.emit(self.index, files)
             event.acceptProposedAction()
         else:
-            self.setStyleSheet(DROP_DONE if self._pixmap else DROP_IDLE)
-            self._caption.setText("Aucune image valide — réessaie")
+            self.refresh_theme()
+            self._caption.setText(i18n.t("drop_invalid"))
             event.ignore()
 
     def show_preview(self, image_path: str, count: int) -> None:
@@ -72,9 +73,12 @@ class DropBox(QFrame):
         if not pix.isNull():
             self._pixmap = pix
             self._update_pixmap()
-        self._caption.setText(f"✓ {count} copié(s) — redéposez")
-        self.setStyleSheet(DROP_DONE)
-        self.setToolTip(f"{count} image(s) copiée(s)\nDernière : {image_path}")
+        self._caption.setText(i18n.t("drop_done", n=count))
+        self.setStyleSheet(style.drop_done())
+        self.setToolTip(i18n.t("drop_tooltip", n=count, p=image_path))
+
+    def refresh_theme(self) -> None:
+        self.setStyleSheet(style.drop_done() if self._pixmap else style.drop_idle())
 
     def _update_pixmap(self) -> None:
         if self._pixmap and not self._pixmap.isNull():

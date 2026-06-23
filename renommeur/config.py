@@ -45,6 +45,8 @@ class AppConfig:
     output_dir: str = field(default_factory=default_output_dir)
     preview_before_rename: bool = False
     move_originals: bool = False
+    language: str = "fr"
+    theme: str = "dark"
     reference_images: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -80,6 +82,10 @@ class AppConfig:
             data.get("preview_before_rename", cfg.preview_before_rename)
         )
         cfg.move_originals = bool(data.get("move_originals", cfg.move_originals))
+        if data.get("language") in ("fr", "en", "es"):
+            cfg.language = data["language"]
+        if data.get("theme") in ("dark", "light"):
+            cfg.theme = data["theme"]
         imgs = data.get("reference_images")
         if isinstance(imgs, dict):
             cfg.reference_images = {
@@ -96,6 +102,8 @@ class AppConfig:
             "output_dir": self.output_dir,
             "preview_before_rename": self.preview_before_rename,
             "move_originals": self.move_originals,
+            "language": self.language,
+            "theme": self.theme,
             "reference_images": self.reference_images,
         }
         # Écriture atomique : temporaire + os.replace -> pas de config tronquée.

@@ -11,7 +11,7 @@ from openpyxl import Workbook  # noqa: E402
 from openpyxl.drawing.image import Image as XLImage  # noqa: E402
 from PIL import Image as PILImage  # noqa: E402
 
-from renommeur.excel_import import import_references  # noqa: E402
+from renommeur.excel_import import import_references, read_sheets  # noqa: E402
 
 
 def _make_xlsx(path, with_images=True):
@@ -85,6 +85,59 @@ def test_choisit_le_bon_onglet_et_la_colonne_photo(tmp_path):
     for r in refs:
         assert r.image_bytes
         assert PILImage.open(io.BytesIO(r.image_bytes)).size == (40, 40)
+
+
+def test_read_sheets(tmp_path):
+    wb = Workbook()
+    a = wb.active
+    a.title = "A"
+    a["A1"] = "Col1"
+    a["B1"] = "Col2"
+    wb.create_sheet("B")["A1"] = "X"
+    xlsx = tmp_path / "s.xlsx"
+    wb.save(xlsx)
+
+    sheets = read_sheets(xlsx)
+    assert sheets["A"] == ["Col1", "Col2"]
+    assert sheets["B"] == ["X"]
+
+
+def test_import_colonnes_personnalisees(tmp_path):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Data"
+    ws["A1"] = "Code"
+    ws["B1"] = "Visuel"
+    ws["A2"] = "REF-1"
+    buf = io.BytesIO()
+    PILImage.new("RGB", (20, 20), "red").save(buf, "PNG")
+    buf.seek(0)
+    ws.add_image(XLImage(buf), "B2")
+    xlsx = tmp_path / "c.xlsx"
+    wb.save(xlsx)
+
+    refs, warnings = import_references(
+        xlsx, text_column="Code", image_column="Visuel", sheet_name="Data"
+    )
+    assert [r.name for r in refs] == ["REF-1"]
+    assert refs[0].image_bytes
+
+
+def test_import_sans_colonne_image(tmp_path):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Data"
+    ws["A1"] = "Code"
+    ws["A2"] = "R1"
+    xlsx = tmp_path / "n.xlsx"
+    wb.save(xlsx)
+
+    refs, warnings = import_references(
+        xlsx, text_column="Code", image_column=None, sheet_name="Data"
+    )
+    assert [r.name for r in refs] == ["R1"]
+    assert refs[0].image_bytes is None
+    assert not warnings  # aucun avertissement image quand aucune n'est demandée
 
 
 def test_colonne_texte_introuvable_utilise_premiere(tmp_path):

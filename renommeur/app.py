@@ -2,12 +2,22 @@ from __future__ import annotations
 
 import sys
 import traceback
+from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from . import __app_name__
 from .ui.main_window import MainWindow
-from .ui.style import STYLESHEET
+
+
+def _logo_path() -> Path | None:
+    candidates = []
+    mei = getattr(sys, "_MEIPASS", None)  # dossier temporaire d'un build PyInstaller
+    if mei:
+        candidates.append(Path(mei) / "assets" / "logo.png")
+    candidates.append(Path(__file__).resolve().parent.parent / "assets" / "logo.png")
+    return next((p for p in candidates if p.is_file()), None)
 
 
 def _install_excepthook() -> None:
@@ -27,7 +37,9 @@ def _install_excepthook() -> None:
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(__app_name__)
-    app.setStyleSheet(STYLESHEET)
+    logo = _logo_path()
+    if logo is not None:
+        app.setWindowIcon(QIcon(str(logo)))
     _install_excepthook()
     window = MainWindow()
 
